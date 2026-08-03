@@ -1,7 +1,6 @@
 #import variables from command line
 args = commandArgs(trailingOnly=TRUE)
 SEED = args[1]
-#SEED = 1
 print(paste0('Commencing modelling for seed ',SEED))
 
 print('Importing Libraries')
@@ -12,8 +11,8 @@ print('Loading Data')
 #select data
 setwd("~/281224")#CHANGE TO RELEVANT DIRECTORY
 load("Code/DatasetsFull141024.RData")#CHANGE TO RELEVANT FILE
-datafull <- datafull[datafull$randomcohort == 'development',]
-N_individuals <- 5000 #use only a section of the data
+datafull <- datafull[datafull$randomcohort == 'development',]#select the data for training
+N_individuals <- 5000 #number of individuals to be used in bootstrap
 set.seed(SEED)
 selected <- sample(1:dim(datafull)[1],size=N_individuals,replace=TRUE)#select indexes of patients for bootstrapping
 data = datafull[selected,]
@@ -27,8 +26,6 @@ data$deathageday <- data$deathageday + 1
 
 #convert gestational age (gest) from weeks to days
 data$gest <- round(7*data$gest)
-
-days_monitored <- 100
 
 #convert some static variables to be in usable number format
 data$zpreterm <- as.numeric(data$zpreterm)
@@ -69,7 +66,7 @@ data$matsmoking[data$matsmoking == 'yes'] <- 1
 data$matsmoking[data$matsmoking == 'no'] <- 0
 data$matsmoking <- as.numeric(data$matsmoking)
 
-data$IMDdecile <- (data$IMDdecile-mean(data$IMDdecile,na.rm=TRUE))/sd(data$IMDdecile,na.rm=TRUE)
+data$IMDdecile <- (data$IMDdecile-mean(data$IMDdecile,na.rm=TRUE))/sd(data$IMDdecile,na.rm=TRUE)#normalize
 
 data$deliverymode[data$deliverymode == 'C-section'] <- 1
 data$deliverymode[data$deliverymode == 'Vaginal'] <- 0
@@ -83,7 +80,7 @@ data$tempbelow[data$tempbelow == 'yes'] <- 1
 data$tempbelow[data$tempbelow == 'no'] <- 0
 data$tempbelow <- as.numeric(data$tempbelow)
 
-
+#create array containing the names of the relevant static variables
 static_predictors_of_interest <- c('zpreterm',
                                    'gender',
                                    'LevelNNU',
@@ -97,26 +94,37 @@ static_predictors_of_interest <- c('zpreterm',
                                    'IMDdecile',
                                    'deliverymode',
                                    'tempbelow')
-N_s_predictors <- length(static_predictors_of_interest)
-static_predictors <- array(NA,c(N_individuals,N_s_predictors))
+
+#now we want to create an array containing all static variable information
+N_s_predictors <- length(static_predictors_of_interest)#number of static predictors
+static_predictors <- array(NA,c(N_individuals,N_s_predictors))#main array containing all static variable information
 ave_vals <- array(NA,N_s_predictors)
 for (s_predictor in 1:N_s_predictors){
-  static_predictors[,s_predictor] <- data[[static_predictors_of_interest[s_predictor]]]
+  static_predictors[,s_predictor] <- data[[static_predictors_of_interest[s_predictor]]]#assign known values
+  #for values we don't know, we use mean imputation:
   ave_vals[s_predictor] <- mean(static_predictors[,s_predictor],na.rm=TRUE)
-  for (individual in 1:N_individuals){#for time being, set missing vals to average of their row
+  for (individual in 1:N_individuals){
     if(is.na(static_predictors[individual,s_predictor])){
       static_predictors[individual,s_predictor] <- ave_vals[s_predictor]
     }
   }
 }
-save(ave_vals,file='ave_vals.RData')
+save(ave_vals,file='ave_vals.RData')#save for later use
 
 ######################Extract Dynamic Copredictors#######################
-ivhuse <- array(-1,c(N_individuals,252))
+#now for the dynamical predictors, we want to create a similar array to static_predictors
+#we first construct an array for each predictor with its name, and stitch them together later
+
+#firstly for ivhuse
+#since this is a variable about which we know if it has happened then or before in the data, we need to isolate the first day
+ivhuse <- array(-1,c(N_individuals,252))#the main array
 for (individual in 1:N_individuals){
   first_point <- 0
-  for (gest_day in data$gest[individual]:252){
-    age_day <- gest_day - data$gest[individual] + 1
+  for (gest_day in data$gest[individual]:252){#for each day after they were born
+    age_day <- gest_day - data$gest[individual] + 1#age_day is the age since birth, whereas gest_day is the gestational age
+    #now if we have a non-NA, positive result, then we add a one, signifying that they have gone from not having ivhuse to having ivhuse
+    #this isolates the day where the switch happened
+    #if we have information that ivh has never happened, then we instead fill with a zero
     if (!(is.na(data[individual,paste0("IVHuseD",age_day)])) & data[individual,paste0("IVHuseD",age_day)] == 'yes' & first_point == 0){
       ivhuse[individual,gest_day] <- 1
       first_point <- 1
@@ -126,7 +134,7 @@ for (individual in 1:N_individuals){
   }
 }
 
-
+#similarly for necsurg
 necsurg <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   first_point <- 0
@@ -141,6 +149,7 @@ for (individual in 1:N_individuals){
   }
 }
 
+#similarly for pda
 pda <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   first_point <- 0
@@ -155,7 +164,9 @@ for (individual in 1:N_individuals){
   }
 }
 
-
+#for the remaining dynamical predictors, we have daily data, so we can just fill in ones where we have a positive,
+#and zeros where we have a negative
+#-1 signifies no information
 inotrope <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   for (gest_day in data$gest[individual]:252){
@@ -168,7 +179,7 @@ for (individual in 1:N_individuals){
   }
 }
 
-
+#similarly
 sepsis <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   for (gest_day in data$gest[individual]:252){
@@ -181,20 +192,7 @@ for (individual in 1:N_individuals){
   }
 }
 
-#for now, dont use feed
-#feed <- array(-1,c(N_individuals,252))
-#for (individual in 1:N_individuals){
-#  counter <- -1
-#  feed_used <- FALSE
-#  for (gest_day in data$gest[individual]:252){
-#    age_day <- gest_day - data$gest[individual] + 1
-#    if ('feed' %in% data[individual,paste0("feedD",1:age_day)]){counter <- counter + 1}
-#    if (!is.na(data[individual,paste0("feedD",age_day)]) & data[individual,paste0("feedD",age_day)] == 'yes'){counter <- 0}
-#    feed[individual,gest_day] <- counter
-#  }
-#}
-
-
+#similarly
 pnuse <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   for (gest_day in data$gest[individual]:252){
@@ -207,28 +205,27 @@ for (individual in 1:N_individuals){
   }
 }
 
-
+#now we have an array of predictor names
 d_predictors_of_interest <- c('ivhuse',
                               'necsurg',
                               'pda',
                               'inotrope',
                               'sepsis',
-                              #'feed',
                               'pnuse')
 N_d_predictors <- length(d_predictors_of_interest)
+#create the main dynamical predictor array and fill in
 d_predictors <- array(NA,c(N_individuals,252,N_d_predictors))
 d_predictors[,,1] <- ivhuse
 d_predictors[,,2] <- necsurg
 d_predictors[,,3] <- pda
 d_predictors[,,4] <- inotrope
 d_predictors[,,5] <- sepsis
-#d_predictors[,,6] <- feed
 d_predictors[,,6] <- pnuse
 
 
 
 
-#Truncate dynamic variables
+#Truncate dynamic variables (we have no data starting before gest day 161)
 d_predictors <- d_predictors[,161:252,]
 max_time <- length(161:252)
 
@@ -236,18 +233,18 @@ max_time <- length(161:252)
 
 
 ####################Fitting Model###############################################
+#data for the stan model
 df <- list(
   N_individuals = N_individuals,
-  #N_s_predictors = N_s_predictors,
   N_d_predictors = N_d_predictors,
   init_times = data$gest-160,
-  #s_predictors = static_predictors,
   d_predictors = d_predictors,
-  #clin_outcomes = clin_outcomes_new,
   max_time = max_time
 )
 
+#compile the stan model
 clin_model <- cmdstan_model('Code/ClinModel.stan')
+#set skeleton showing the shape of the parameters expected out for relist function later
 l <- list()
 l$age_decay <- array(0.01,df$N_d_predictors)
 l$base_decay <- array(-0.01,df$N_d_predictors)
@@ -256,19 +253,21 @@ initf <- function(){
   return(l)
 }
 
+#load some stable initial values
 file1 <- paste0("~/231124/Fits/ClinFit", SEED, ".RData")
 file2 <- paste0("~/231124/Fits/ClinFit", 1, ".RData")
-
 if (file.exists(file1)) {
   load(file1)
 } else {
   load(file2)
 }
+
+#fit model
 opt <- clin_model$optimize(data=df,
                            init=list(exclinopt)
                            )
-exclinopt <- relist(opt$mle(),skeleton=l)
-save(exclinopt,file=paste0('Fits/ClinFit',SEED,'.RData'))
+exclinopt <- relist(opt$mle(),skeleton=l)#reshape using skeleton from earlier
+save(exclinopt,file=paste0('Fits/ClinFit',SEED,'.RData'))#save
 
 quit()
 

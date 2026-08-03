@@ -24,6 +24,7 @@ data$deathageday <- data$deathageday + 1
 
 
 #################Extract Static Copredictors######################
+#similar to in ClinModelTraining file
 
 #convert gestational age (gest) from weeks to days
 data$gest <- round(7*data$gest)
@@ -105,30 +106,36 @@ for (s_predictor in 1:N_s_predictors){
     }
   }
 }
-save(ave_vals,file='ave_vals.RData')
-  
+
 ######################Extract Dynamic Copredictors#######################
+#this is fairly similar to the ClinModelTraining, however we must now impute missing data using the parameters found
+#we also count the days since the event occurred, rather than just using indicators
+
+#load ClinModelTraining fitted model parameters
 load(paste0('Fits/ClinFit',SEED,'.RData'))
-ivhuse <- array(-1,c(N_individuals,252))
+
+ivhuse <- array(-1,c(N_individuals,252))#initialise array
 for (individual in 1:N_individuals){
-  counter <- -1
-  for (gest_day in data$gest[individual]:252){
-    age_day <- gest_day - data$gest[individual] + 1
+  counter <- -1#initialise counter showing days since event occurred
+  for (gest_day in data$gest[individual]:252){#for each day after birth
+    age_day <- gest_day - data$gest[individual] + 1#age since birth
     if (!is.na(data[individual,paste0("IVHuseD",age_day)]) | data[individual,paste0("IVHuseD",age_day)] != 'NA'){#if value is NA, we must fill in
       if ('no' %in% data[individual,paste0("IVHuseD",age_day:100)]){#if we know that there is a future point with no, then it must be no now
         data[individual,paste0('IVHuseD',age_day)] <- 'no'
-      } else {#if we don't know that, then we guess
+      } else {#if we don't know that, then we impute based on imputation model fitted before
         data[individual,paste0('IVHuseD',age_day)] <- sample(c('no','yes'),
                                                              1,
                                                              prob=c(1-tanh(exp(log(exclinopt$p[1]) + (gest_day - data$gest[individual]) * exclinopt$age_decay[1] + (gest_day - 160) * exclinopt$base_decay[1])),
                                                                     tanh(exp(log(exclinopt$p[1]) + (gest_day - data$gest[individual]) * exclinopt$age_decay[1] + (gest_day - 160) * exclinopt$base_decay[1]))))
       }
     }
+    #if ivh has been used, we then start counting days since it first occurred
     if ('yes' %in% data[individual,paste0("IVHuseD",1:age_day)]){counter <- counter + 1}
-    ivhuse[individual,gest_day] <- counter
+    ivhuse[individual,gest_day] <- counter#assign value
   }
 }
 
+#similarly
 necsurg <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   counter <- -1
@@ -151,7 +158,7 @@ for (individual in 1:N_individuals){
 
 
 
-
+#similarly
 pda <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   counter <- -1
@@ -173,23 +180,28 @@ for (individual in 1:N_individuals){
   }
 }
 
-inotrope <- array(-1,c(N_individuals,252))
+#for the remaining variables, we have daily information, so we are instead interested in days since it last occurred
+#rather than days since it first occurred
+inotrope <- array(-1,c(N_individuals,252))#initialise main array
 for (individual in 1:N_individuals){
-  counter <- -1
-  for (gest_day in data$gest[individual]:252){
-    age_day <- gest_day - data$gest[individual] + 1
-    if (!is.na(data[individual,paste0("inotropeD",age_day)])){
+  counter <- -1#initialise counter
+  for (gest_day in data$gest[individual]:252){#for each day after birth
+    age_day <- gest_day - data$gest[individual] + 1#age since birth
+    if (!is.na(data[individual,paste0("inotropeD",age_day)])){#impute using previously fitted model if unknown
       data[individual,paste0('inotropeD',age_day)] <- sample(c('no','yes'),
                                                              1,
                                                              prob=c(1-tanh(exp(log(exclinopt$p[4]) + (gest_day - data$gest[individual]) * exclinopt$age_decay[4] + (gest_day - 160) * exclinopt$base_decay[4])),
                                                                     tanh(exp(log(exclinopt$p[4]) + (gest_day - data$gest[individual]) * exclinopt$age_decay[4] + (gest_day - 160) * exclinopt$base_decay[4]))))
     }
+    #increase counter if event has occurred
     if ('yes' %in% data[individual,paste0("inotropeD",1:age_day)]){counter <- counter + 1}
+    #if event is occurring, then reset the counter
     if (!is.na(data[individual,paste0("inotropeD",age_day)]) & data[individual,paste0("inotropeD",age_day)] == 'yes'){counter <- 0}
-    inotrope[individual,gest_day] <- counter
+    inotrope[individual,gest_day] <- counter#assign value
   }
 }
 
+#similarly
 sepsis <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   counter <- -1
@@ -207,19 +219,7 @@ for (individual in 1:N_individuals){
   }
 }
 
-#for now, dont use feed
-#feed <- array(-1,c(N_individuals,252))
-#for (individual in 1:N_individuals){
-#  counter <- -1
-#  feed_used <- FALSE
-#  for (gest_day in data$gest[individual]:252){
-#    age_day <- gest_day - data$gest[individual] + 1
-#    if ('feed' %in% data[individual,paste0("feedD",1:age_day)]){counter <- counter + 1}
-#    if (!is.na(data[individual,paste0("feedD",age_day)]) & data[individual,paste0("feedD",age_day)] == 'yes'){counter <- 0}
-#    feed[individual,gest_day] <- counter
-#  }
-#}
-
+#similarly
 pnuse <- array(-1,c(N_individuals,252))
 for (individual in 1:N_individuals){
   counter <- -1
@@ -237,14 +237,14 @@ for (individual in 1:N_individuals){
   }
 }
 
-
+#array containing names of all dynamical predictors
 d_predictors_of_interest <- c('ivhuse',
                               'necsurg',
                               'pda',
                               'inotrope',
                               'sepsis',
-                              #'feed',
                               'pnuse')
+#now create a combined array for all dynamical valiables
 N_d_predictors <- length(d_predictors_of_interest)
 d_predictors <- array(NA,c(N_individuals,252,N_d_predictors))
 d_predictors[,,1] <- ivhuse
@@ -259,10 +259,14 @@ d_predictors[,,6] <- pnuse
 
 
 ###########################Extract Clinical Outcomes##############################
+#we now extract the outcome which contains the five states
+
 clin_outcomes <- array(-1,c(N_individuals,252,5))
 for (individual in 1:N_individuals){
-  for (gest_day in data$gest[individual]:252){
-    age_day <- gest_day - data$gest[individual] + 1
+  for (gest_day in data$gest[individual]:252){#for each day after brith
+    age_day <- gest_day - data$gest[individual] + 1#age since birth
+    
+    #if we have information on a particular day, we fill that in
     if (!(is.na(data[individual,paste0("CLDD",age_day)])) & data[individual,paste0("CLDD",age_day)] == 'none'){
       clin_outcomes[individual,gest_day,] <- c(1,0,0,0,0)
     } else if (!(is.na(data[individual,paste0("CLDD",age_day)])) &data[individual,paste0("CLDD",age_day)] == 'oxygen'){
@@ -275,7 +279,8 @@ for (individual in 1:N_individuals){
       clin_outcomes[individual,gest_day,] <- c(0,0,0,0,1)
     }
   }
-  #Also use final point, as we don't always have that explicitly:
+  
+  #Also use final point, as we don't always have that explicitly
   final_age_day <- 252 - data$gest[individual] + 1
   if (data$BPDgrade[individual]=='None'){
     clin_outcomes[individual,252,] <- c(1,0,0,0,0)
@@ -288,12 +293,15 @@ for (individual in 1:N_individuals){
   } else if (data$BPDgrade[individual] == 'NA'){
     clin_outcomes[individual,252,] <- c(0,0,0,0,1)
   }
+  
   #also, if we reach NAs, and last value was none, and final value is none, then baby has been discharged
-  for (gest_day in data$gest[individual]:252){
-    age_day <- gest_day - data$gest[individual] + 1
+  #this means we can fill it in with 'none' values
+  for (gest_day in data$gest[individual]:252){#for each day after birth
+    age_day <- gest_day - data$gest[individual] + 1#age since birth
     found = FALSE
     found_value = 'init'
     timestepper = age_day
+    #check if we have a none value, and a final outcome of none, and that there are no other states (oxygen, vent or NIV) between them
     if ('none' %in% data[individual,paste0("CLDD",1:age_day)] & !(TRUE %in% (c('oxygen','vent','NIV') %in% data[individual,paste0("CLDD",age_day:100)])) & (data$BPDgrade[individual] == 'None')){
       while (found == FALSE & timestepper>1){#look backwards in steps until we find last known value
         timestepper = timestepper-1
@@ -316,7 +324,7 @@ d_predictors <- d_predictors[,161:252,]
 clin_outcomes <- clin_outcomes[,161:252,]
 max_time <- length(161:252)
 
-#convert clin_outcomes to contain number of outcome, rather than an array
+#convert clin_outcomes to contain number of outcome, rather than an array of ones and zeros
 clin_outcomes_new <- array(-1,c(N_individuals,max_time))
 for (individual in 1:N_individuals){
   for (time in 1:max_time){
@@ -330,6 +338,7 @@ for (individual in 1:N_individuals){
 
 
 ####################Fitting Model###############################################
+#data for stan model
 df <- list(
   N_individuals = N_individuals,
   N_s_predictors = N_s_predictors,
@@ -343,12 +352,12 @@ df <- list(
 
 
 print('Loading Model')
-
+#compile stan model
 model <- cmdstan_model('Code/StanModelCMD.stan')
 
 
 
-
+#create skeleton for relist function later
 l <- list()
 l$p <- array(0.1,c(4,5))
 l$base_par_1 <- array(10,c(4,5))
@@ -362,31 +371,32 @@ l$age_coefs <- array(0.5,c(4,5))
 l$age_decay <- array(-0.1,c(4,5))
 #l$prev_state_coefs <- array(0.001,c(3,4,5))
 #l$prev_state_decay <- array(-0.1,c(3,4,5))
+
+#set initial values
+#you can use the values shown above in the skeleton
 initf1 <- function() {
   return(l)
 }
-
+#alternatively, you can use values from a previous fit as this might be faster
 initf2 <- function(){
   l = exopt
-
   return(l)
 }
-#load('OptFitBootstrap1.RData')
 load(paste0('Fits/OptFitBootstrap',SEED,'.RData'))
 
 print('Fitting')
+#fit model
 opt <- model$optimize(data=df,
                       init=initf2,
                       iter = 20000)
 #samps <- model$sample(data=df,init=initf1,chains=2)
+
+#extract and reshape parameters
 exopt <- relist(opt$mle(),skeleton=l)
 exopt$static_coefs <- array(exopt$static_coefs,dim=dim(l$static_coefs))
-#exopt$static_decay <- array(exopt$static_decay,dim=dim(l$static_decay))
 exopt$dynam_coefs <- array(exopt$dynam_coefs,dim=dim(l$dynam_coefs))
 exopt$dynam_decay <- array(exopt$dynam_decay,dim=dim(l$dynam_decay))
-#exopt$prev_state_coefs <- array(exopt$prev_state_coefs,dim=dim(l$prev_state_coefs))
-#exopt$prev_state_decay <- array(exopt$prev_state_decay,dim=dim(l$prev_state_decay))
-save(exopt,file=paste0('Fits/OptFitBootstrap',SEED,'.RData'))
+save(exopt,file=paste0('Fits/OptFitBootstrap',SEED,'.RData'))#save parameters
 print(paste0('Modelling completed'))
 
 quit()
